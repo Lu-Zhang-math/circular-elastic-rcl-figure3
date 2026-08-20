@@ -2,9 +2,7 @@
 
 MATLAB code for the circular truncation experiment in Figure 3. The elastic
 field is coupled to phase-extracted P- and S-wave potentials by the weak
-interface formulation. Element interiors are eliminated by static
-condensation. The circular RCL bilinear form is assembled in radial and
-tangential components.
+interface formulation. 
 
 Run in MATLAB:
 
