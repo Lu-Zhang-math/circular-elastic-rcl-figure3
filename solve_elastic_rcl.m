@@ -1,5 +1,7 @@
 function result=solve_elastic_rcl(omega,L,params)
 
+validate_solver_inputs(omega,L,params);
+
 rho0   = params.rho;
 lambda = params.lambda;
 mu     = params.mu;
@@ -298,9 +300,21 @@ bscaled=braw./rowScale;
 
 ub=Ascaled\bscaled;
 
+if any(~isfinite(ub))
+    error('solve_elastic_rcl:InvalidSolution', ...
+        'The linear solve produced nonfinite values.');
+end
+
 scaledResidual=norm(Ascaled*ub-bscaled)/max(norm(bscaled),realmin);
 denominator=norm(Araw,1)*norm(ub,1)+norm(braw,1);
 backwardError=norm(Araw*ub-braw,1)/max(denominator,realmin);
+
+if ~isfinite(scaledResidual) || ~isfinite(backwardError) || ...
+        scaledResidual>1e-10 || backwardError>1e-10
+    error('solve_elastic_rcl:ResidualTooLarge', ...
+        'Residual check failed: scaled=%g, backward=%g.', ...
+        scaledResidual,backwardError);
+end
 
 u=cell(1,Nel);
 
@@ -345,6 +359,11 @@ end
 relativeH1=relative_h1_error( ...
     u,ElasticElements,Npxvec,Npyvec,xml,yml,rx,sx,ry,sy,J, ...
     kp,ks,params.source);
+
+if ~isfinite(relativeH1) || relativeH1<=0
+    error('solve_elastic_rcl:InvalidError', ...
+        'The relative H1 error is invalid.');
+end
 
 result=struct();
 result.omega=omega;
@@ -911,4 +930,62 @@ linearIndBD=sub2ind([Npx,Npy],rowsubBD,colsubBD);
 rowsubIN=rowsubIN(:).';
 colsubIN=colsubIN(:).';
 linearIndIN=sub2ind([Npx,Npy],rowsubIN,colsubIN);
+end
+
+function validate_solver_inputs(omega,L,params)
+if ~isstruct(params)
+    error('solve_elastic_rcl:InvalidParameters','params must be a struct.');
+end
+required={'rho','lambda','mu','r0','a','b','source','M', ...
+    'nPhysicalLayers','N1','N2','N3'};
+missing=required(~isfield(params,required));
+if ~isempty(missing)
+    error('solve_elastic_rcl:MissingParameter', ...
+        'Missing parameter: %s.',missing{1});
+end
+
+validateattributes(omega,{'numeric'},{'scalar','real','finite','positive'}, ...
+    mfilename,'omega',1);
+validateattributes(L,{'numeric'},{'scalar','real','finite','positive'}, ...
+    mfilename,'L',2);
+validateattributes(params.rho,{'numeric'}, ...
+    {'scalar','real','finite','positive'},mfilename,'params.rho');
+validateattributes(params.lambda,{'numeric'}, ...
+    {'scalar','real','finite'},mfilename,'params.lambda');
+validateattributes(params.mu,{'numeric'}, ...
+    {'scalar','real','finite','positive'},mfilename,'params.mu');
+
+if params.lambda+2*params.mu<=0
+    error('solve_elastic_rcl:InvalidMaterial', ...
+        'lambda+2*mu must be positive.');
+end
+
+geometry=[params.r0,params.a,params.b];
+if any(~isfinite(geometry)) || ~isreal(geometry) || ...
+        ~(0<params.r0 && params.r0<params.a && params.a<params.b)
+    error('solve_elastic_rcl:InvalidGeometry', ...
+        'The radii must satisfy 0<r0<a<b.');
+end
+
+integerFields={'M','nPhysicalLayers','N1','N2','N3'};
+for k=1:numel(integerFields)
+    name=integerFields{k};
+    validateattributes(params.(name),{'numeric'}, ...
+        {'scalar','real','finite','integer','positive'}, ...
+        mfilename,['params.',name]);
+end
+if params.M<3
+    error('solve_elastic_rcl:InvalidMesh','M must be at least 3.');
+end
+
+source=params.source;
+if ~isnumeric(source) || numel(source)~=2 || ...
+        ~isreal(source) || any(~isfinite(source(:)))
+    error('solve_elastic_rcl:InvalidSource', ...
+        'source must be a finite real two-vector.');
+end
+if norm(source(:))>=params.r0
+    error('solve_elastic_rcl:InvalidSource', ...
+        'The source must lie inside the obstacle.');
+end
 end
